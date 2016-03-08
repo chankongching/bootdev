@@ -13,12 +13,26 @@
 # language governing permissions and limitations under the License.
 import sys
 import os
+import optparse
+from optparse import OptionParser
 
 if os.environ.get('LC_CTYPE', '') == 'UTF-8':
     os.environ['LC_CTYPE'] = 'en_US.UTF-8'
 
+def initialize(option, opt, value, parser, args=None, kwargs=None):
+  print "Run initialize"
+  return;
+
 def main():
-    print "test Bootdev cli"
+  from os.path import expanduser
+  home = expanduser("~")
+  if os.path.isfile(home + "/.aws/config"):
+    p = OptionParser(usage="usage: %prog [options] filename",
+                          version="%prog 1.0")
+    p.add_option("-i", "--init", action="callback", callback=initialize, type='str')
+    (options, args) = p.parse_args()
+  else:
+    print "Please initialize Bootdev cli by \'bootdev -i\' or \'bootdev --init\'"
 
 if __name__ == '__main__':
     sys.exit(main())
