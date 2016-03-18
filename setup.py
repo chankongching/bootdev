@@ -15,6 +15,7 @@ setup(
   scripts=['bin/bootdev'],
   install_requires=[
     'boto3',
+    'awscli'
   ],
   classifiers=[
     # How mature is this project? Common values are
