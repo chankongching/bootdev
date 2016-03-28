@@ -14,12 +14,16 @@ upload_name = {"github":"title","bitbucket":"label"}
 aws_region = {"us-east-1", "us-west-1", "us-west-2", "eu-west-1", "eu-central-1", "ap-northeast-1", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "sa-east-1"}
 
 def get_value(key, list):
+    if args.verbose:
+        print "Getting values from stored list"
     for index, value in list.iteritems():
         if index == key.lower():
             return value
     return 0
 
 def file_get_contents(filename):
+    if args.verbose:
+        print "Reading from file " + filename
     from os.path import expanduser
     home = expanduser("~")
     filename = re.sub('~',home,filename.rstrip())
@@ -27,6 +31,8 @@ def file_get_contents(filename):
         return f.read()
 
 def get_config_value(key, content):
+    if args.verbose:
+        print "Getting values of " + key + " from configuration file."
     key_search = re.search('\[' + key + ']\n((.+\n)+?)(\[|([(\n|\r)]*?)$)', content)
     if key_search:
         return key_search.group(1)
@@ -47,6 +53,8 @@ def cmd_exists(cmd):
         stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
 
 def check_dir(path = "/.bootdev"):
+    if args.verbose:
+        print "Checking if the directory " + path + "exists."
     from os.path import expanduser
     home = expanduser("~")
     return os.path.isdir(home + path)
@@ -164,6 +172,24 @@ def input_credentials_register(name, url, key_url, title_name):
 def aws_test(*args):
     import boto3
     client = boto3.client('config')
+
+def which(program):
+    import os
+    def is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath, fname = os.path.split(program)
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ["PATH"].split(os.pathsep):
+            path = path.strip('"')
+            exe_file = os.path.join(path, program)
+            if is_exe(exe_file):
+                return exe_file
+
+    return None
 
 class switcher:
     def initializing(self, argument):
@@ -289,6 +315,15 @@ def main():
     parser = argparse.ArgumentParser(description='BootDev command line for AWS infrastructure management',epilog="Copyright 2015 by BootDev\nAll rights reserved.")
     parser.add_argument("-i","--initialize", help="initialize BootDev Commandline tool",
                     action="store_true")
+    parser.add_argument("-v","--verbose", help="increase output verbosity",
+                    action="store_true")
+
+    parser.add_argument("--aws", help="Running AWS cli directly",
+                    action="store",  
+                    #nargs='+'
+                    nargs=argparse.REMAINDER
+                    )
+
     args = parser.parse_args()
     if args.initialize:
         print "Welcome to BootDev initialization"
@@ -299,6 +334,8 @@ def main():
         step_list.append("Step3: Input github/bitbucket credentials")
         step_list.append("Step4: Initialize AWS")
         
+        if args.verbose:
+            print "Running switcher functions."
         run = switcher()
         #Running initialize step
         m=0
@@ -316,8 +353,20 @@ def main():
           run.initializing(mi)
 
     if not args.initialize:
-        if not check_file("/.aws/config"):
-            print("Please run bootdev -i/--initialize to set up configuration files");
+        if not check_file("/.aws/config") or not check_file("/.bootdev/config"):
+            print "Please run bootdev -i/--initialize to set up configuration files"
+            return
+        if args.aws:
+            if not cmd_exists('aws'):
+                print "AWS Cli installation corrupted"
+            else:
+                print which('aws') + " " + ' '.join(args.aws)
+                call([which('aws') + " " + ' '.join(args.aws)],shell=True)
+            print ' '.join(args.aws)
+            
 
 if __name__ == '__main__':
     sys.exit(main())
+
+
+
