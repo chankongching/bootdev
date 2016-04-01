@@ -12,9 +12,46 @@ authent_url = {"github":"https://api.github.com", "bitbucket":"https://bitbucket
 uploadk_url = {"github":"https://api.github.com/user/keys", "bitbucket": "https://api.bitbucket.org/1.0/users/bitbucket_accountname/ssh-keys"}
 upload_name = {"github":"title","bitbucket":"label"}
 aws_region = {"us-east-1", "us-west-1", "us-west-2", "eu-west-1", "eu-central-1", "ap-northeast-1", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "sa-east-1"}
+deployable = {"free":{"vpc", "rds_mysql", "chef-solo"}, "basic":{"vpc","rds_mysql",'chefServer','chefClient'}}
+deploy_available = {"create_stack","show_created_stacks","health_check"}
+
+def run_deploy(args):
+    if args.show:
+        if args.show.lower() == 'deployable':
+            for key, value in deployable.iteritems():
+                print "Name: " + key
+                print "Details: ",
+                print value
+    elif args.delete:
+        print args.delete
+    elif args.pull:
+        print args.pull
+    elif args.rollback:
+        print args.rollback
+    elif args.create:
+        list = get_value(args.create.lower(),deployable);
+        if list == 0:
+            print "Invalid choice!"
+            return
+        else:
+            create_stack(args.create)
+    else:
+        print "Arguments is invalid"
+
+def create_stack(str):
+    print "Creating stack " + str
+
+def check_verbose():
+    try:
+        if args.verbose:
+            return True
+    except:
+        return False
+    else:
+        return False
 
 def get_value(key, list):
-    if args.verbose:
+    if check_verbose():
         print "Getting values from stored list"
     for index, value in list.iteritems():
         if index == key.lower():
@@ -22,7 +59,7 @@ def get_value(key, list):
     return 0
 
 def file_get_contents(filename):
-    if args.verbose:
+    if check_verbose():
         print "Reading from file " + filename
     from os.path import expanduser
     home = expanduser("~")
@@ -31,7 +68,7 @@ def file_get_contents(filename):
         return f.read()
 
 def get_config_value(key, content):
-    if args.verbose:
+    if check_verbose():
         print "Getting values of " + key + " from configuration file."
     key_search = re.search('\[' + key + ']\n((.+\n)+?)(\[|([(\n|\r)]*?)$)', content)
     if key_search:
@@ -53,7 +90,7 @@ def cmd_exists(cmd):
         stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
 
 def check_dir(path = "/.bootdev"):
-    if args.verbose:
+    if check_verbose():
         print "Checking if the directory " + path + "exists."
     from os.path import expanduser
     home = expanduser("~")
@@ -311,6 +348,38 @@ class switcher:
         f.write('keypair_name=' + keypair_name + "\n")
         f.close()
 
+#    def number_4(self):
+#        print "Will you use BootDev cli to deploy architecture?[yes|no|Ctrl+Z to quit][default: yes]:"
+#        if raw_input_check():
+#            #Write info to config file
+#            filename = "/.bootdev/config"
+#            from os.path import expanduser
+#            home = expanduser("~")
+#            f = open( home + filename, 'a')
+#            f.write("[server_ip]\n")
+#            
+#            print "Is this a AWS EC2?(Elastic IP will be checked)[yes|no|Ctrl+Z to quit][default: yes]:"
+#            if raw_input_check():
+#                print "Automatic getting Elastic IP"
+#                from os.path import expanduser
+#                home = expanduser("~")
+#                call(["wget -O " + home + "/ec2-metadata http://s3.amazonaws.com/ec2metadata/ec2-metadata;chmod 744 " + home + "/ec2-metadata"],shell=True)
+#                public_ipaddress = os.popen(home +'/ec2-metadata -v').read()
+#                public_ipaddress = public_ipaddress.split(': ')[1].strip('\n')
+#
+#            else:
+#                print "Print provide your server IP address"
+#                public_ipaddress = raw_input()
+#                print "",
+#
+#            f.write("server_ip=" + public_ipaddress + "\n")
+#            f.close()
+#
+#        else:
+#            print "No IP address configuration is required"
+#            return
+
+
 def main():
     parser = argparse.ArgumentParser(description='BootDev command line for AWS infrastructure management',epilog="Copyright 2015 by BootDev\nAll rights reserved.")
     parser.add_argument("-i","--initialize", help="initialize BootDev Commandline tool",
@@ -323,6 +392,18 @@ def main():
                     #nargs='+'
                     nargs=argparse.REMAINDER
                     )
+    #parser.add_argument("--deploy", help="Deploying architecture to AWS",
+    #                action="store",  
+    #                #nargs='+'
+    #                nargs=argparse.REMAINDER
+    #                )
+    subparsers = parser.add_subparsers(help='sub-command help',dest='cmd')
+    parser_deploy = subparsers.add_parser('deploy',help="Deploying architecture to AWS")
+    parser_deploy.add_argument('--show', type=str)
+    parser_deploy.add_argument('--delete', type=str)
+    parser_deploy.add_argument('--pull', type=str)
+    parser_deploy.add_argument('--rollback', type=str)
+    parser_deploy.add_argument('--create', type=str)
 
     args = parser.parse_args()
     if args.initialize:
@@ -333,8 +414,9 @@ def main():
         step_list.append("Step2: Create SSH key for deploy and access")
         step_list.append("Step3: Input github/bitbucket credentials")
         step_list.append("Step4: Initialize AWS")
+#        step_list.append("Step5: Config IP address for deployment")
         
-        if args.verbose:
+        if check_verbose():
             print "Running switcher functions."
         run = switcher()
         #Running initialize step
@@ -351,7 +433,6 @@ def main():
               print "   " + step_list[x]
           print "--------------------------------------------"
           run.initializing(mi)
-
     if not args.initialize:
         if not check_file("/.aws/config") or not check_file("/.bootdev/config"):
             print "Please run bootdev -i/--initialize to set up configuration files"
@@ -360,13 +441,11 @@ def main():
             if not cmd_exists('aws'):
                 print "AWS Cli installation corrupted"
             else:
-                print which('aws') + " " + ' '.join(args.aws)
                 call([which('aws') + " " + ' '.join(args.aws)],shell=True)
-            print ' '.join(args.aws)
-            
+        if args.cmd:
+            if args.cmd == 'deploy':
+                run_deploy(args)
 
+# Running Main function
 if __name__ == '__main__':
     sys.exit(main())
-
-
-
