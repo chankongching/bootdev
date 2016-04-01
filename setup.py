@@ -4,7 +4,7 @@ from distutils.core import setup
 setup(
   name = 'bootdev',
   #packages = ['bootdev'], # this must be the same as the name above
-  version = '0.1.7',
+  version = '0.1.8',
   description = 'Bootdev command for AWS deployments',
   author = 'chankongching',
   author_email = 'chankongching@gmail.com',
@@ -13,6 +13,7 @@ setup(
   keywords = ['testing', 'logging', 'example'], # arbitrary keywords
   license='MIT',
   scripts=['bin/bootdev'],
+  #package_data={'bootdev':['templates/*.template']},
   install_requires=[
     'boto3',
     'awscli'
