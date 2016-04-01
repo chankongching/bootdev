@@ -1,10 +1,15 @@
 #!/usr/bin/env python
 
+# Including all datafiles
+datadir = os.path.join('templates')
+datafiles = [(d, [os.path.join(d,f) for f in files])
+    for d, folders, files in os.walk(datadir)]
+
 from distutils.core import setup
 setup(
   name = 'bootdev',
   #packages = ['bootdev'], # this must be the same as the name above
-  version = '0.1.8',
+  version = '0.2',
   description = 'Bootdev command for AWS deployments',
   author = 'chankongching',
   author_email = 'chankongching@gmail.com',
@@ -13,6 +18,9 @@ setup(
   keywords = ['testing', 'logging', 'example'], # arbitrary keywords
   license='MIT',
   scripts=['bin/bootdev'],
+  include_package_data = True,
+  data_files = datafiles,
+  #data_files = [('', ['templates/*.template'])],
   #package_data={'bootdev':['templates/*.template']},
   install_requires=[
     'boto3',

@@ -3,3 +3,8 @@ README
 setup.cfg
 setup.py
 bin/bootdev
+templates/chef-solo.template
+templates/chefClients.template
+templates/chefServer.template
+templates/rds_mysql.template
+templates/vpc.template
