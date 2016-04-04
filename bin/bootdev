@@ -34,12 +34,18 @@ def run_deploy(args):
             print "Invalid choice!"
             return
         else:
-            create_stack(args.create)
+            create_boot(args.create)
     else:
         print "Arguments is invalid"
 
-def create_stack(str):
+def create_boot(str):
     print "Creating stack " + str
+    list = get_value(str, deployable)
+    for stack in list.iteritems():
+        create_stack(stack)
+
+def create_stack(str):
+    print "temp"
 
 def check_verbose():
     try:
