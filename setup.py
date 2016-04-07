@@ -1,7 +1,8 @@
 #!/usr/bin/env python
+import os
 
 # Including all datafiles
-datadir = os.path.join('templates')
+datadir = os.path.join('bin/templates')
 datafiles = [(d, [os.path.join(d,f) for f in files])
     for d, folders, files in os.walk(datadir)]
 
@@ -9,7 +10,7 @@ from distutils.core import setup
 setup(
   name = 'bootdev',
   #packages = ['bootdev'], # this must be the same as the name above
-  version = '0.2',
+  version = '0.2.10',
   description = 'Bootdev command for AWS deployments',
   author = 'chankongching',
   author_email = 'chankongching@gmail.com',

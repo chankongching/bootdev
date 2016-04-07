@@ -5,6 +5,10 @@ import sys
 import os
 import subprocess
 import re
+import string
+import random
+import boto3
+import time
 from subprocess import call
 
 service_key = {"github":"githubkey", "bitbucket":"bitbucket", "ec2keypair":"ec2keypair"}
@@ -12,8 +16,17 @@ authent_url = {"github":"https://api.github.com", "bitbucket":"https://bitbucket
 uploadk_url = {"github":"https://api.github.com/user/keys", "bitbucket": "https://api.bitbucket.org/1.0/users/bitbucket_accountname/ssh-keys"}
 upload_name = {"github":"title","bitbucket":"label"}
 aws_region = {"us-east-1", "us-west-1", "us-west-2", "eu-west-1", "eu-central-1", "ap-northeast-1", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2", "sa-east-1"}
-deployable = {"free":{"vpc", "rds_mysql", "chef-solo"}, "basic":{"vpc","rds_mysql",'chefServer','chefClient'}}
+deployable = {"free":{1:"vpc", 2:"rds_mysql", 3:"chef-solo"}, "basic":{1:"vpc",2:"rds_mysql",3:'chefServer',4:'chefClient'}}
 deploy_available = {"create_stack","show_created_stacks","health_check"}
+
+#os.path.abspath(__file__)
+
+def id_generator(size=8, chars=string.ascii_uppercase + string.digits):
+    pattern = re.compile("[a-zA-Z][-a-zA-Z0-9]{7}")
+    string = ''.join(random.choice(chars) for _ in range(size))
+    while not pattern.match(string):
+        string = ''.join(random.choice(chars) for _ in range(size))
+    return string
 
 def run_deploy(args):
     if args.show:
@@ -34,12 +47,258 @@ def run_deploy(args):
             print "Invalid choice!"
             return
         else:
-            create_stack(args.create)
+            create_boot(args.create)
     else:
         print "Arguments is invalid"
 
-def create_stack(str):
-    print "Creating stack " + str
+def create_boot(stack):
+    print "Creating stack " + stack
+    hash = ''.join(id_generator()).lower()
+    print "Here is your cloudformation stacks naming prefix: " + hash
+    filename = "/.aws/config"
+    from os.path import expanduser
+    home = expanduser("~")
+    name = 'default'
+    region = get_value('region', string2key_value(get_config_value(name.lower(), file_get_contents(home + filename))))
+    print "Deploy to region: [default = " + region + " ]:",
+    region = raw_input().lower() or region
+    while region not in aws_region :
+        print "Input region is invalid! Please input in:",
+        print aws_region
+        print "Deploy to region:",
+        region = raw_input().lower()
+
+    list = get_value(stack, deployable)
+    for index, value in list.iteritems():
+        create_stack(value, hash, region)
+
+def create_stack(stack, hash, region):
+    #name = hash + "-" + str(stack)
+    if stack == "vpc" :
+        create_vpc(hash, region)
+    elif stack == "rds_mysql" :
+        create_rds(hash, region)
+    elif stack == "chef-solo" :
+        create_solo(hash, region)
+    elif stack == "chefServer" :
+        print "chefServer"
+    elif stack == "chefClient" :
+        print "chefClient"
+
+def create_vpc(hash, region):
+    print "Creating VPC through Cloudformation with name = " + hash + "-vpc" 
+    name = hash + "-vpc" 
+    path = os.path.abspath(__file__)
+    ec2 = boto3.client('ec2',region)
+    response = ec2.describe_availability_zones()
+    availabilityzones = response['AvailabilityZones']
+    i = 1
+    AZs = {}
+    for AZ in availabilityzones:
+        AZs[i] = AZ['ZoneName']
+        i += 1
+    cloudformation = boto3.client('cloudformation',region)
+    template_content = template_read('vpc')
+    response = cloudformation.create_stack(
+        StackName=name,
+        TemplateBody=template_content,
+        Parameters=[
+            {
+                'ParameterKey': 'AZ1',
+                'ParameterValue': AZs[1]
+            },
+            {
+                'ParameterKey': 'AZ2',
+                'ParameterValue': AZs[2]
+            },
+        ]
+    )
+    output = cloudformation_wait(name,region)
+    if output == 'CREATE_FAILED':
+        print "Creation of " + name + " Failed"
+        sys.exit(0)
+    elif output == 'CREATE_COMPLETE':
+        print "Creation of " + name + " Succeed"
+    else:
+        print "Creation of " + name + " Encountered issue, please contact admin for fixing"
+        sys.exit(0)
+
+def create_rds(hash, region):
+    print "Creating RDS through Cloudformation with name = " + hash + "-rds" 
+    name = hash + "-rds" 
+    VPC = get_vpc_output(hash, region)
+    template_content = template_read('rds_mysql')
+    cloudformation = boto3.client('cloudformation',region)
+    response = cloudformation.create_stack(
+        StackName=name,
+        TemplateBody=template_content,
+        Parameters=[
+            {
+                'ParameterKey': 'VpcId',
+                'ParameterValue': VPC['VpcId'],
+            },
+            {
+                'ParameterKey': 'Subnets',
+                'ParameterValue': VPC['PublicSubnetOne'].split(':')[0] + "," + VPC['PublicSubnetThree'].split(':')[0],
+            },
+            {
+                'ParameterKey': 'DBIdentifier',
+                'ParameterValue': hash,
+            },
+            {
+                'ParameterKey': 'MyDBName',
+                'ParameterValue': 'bootdev',
+            },
+            {
+                'ParameterKey': 'DBUser',
+                'ParameterValue': 'bootdev',
+            },
+            {
+                'ParameterKey': 'DBPassword',
+                'ParameterValue': 'passw0rd',
+            },
+            {
+                'ParameterKey': 'DBAllocatedStorage',
+                'ParameterValue': '20',
+            },
+            {
+                'ParameterKey': 'MyDBInstanceClass',
+                'ParameterValue': "db.t2.micro",
+            },
+            {
+                'ParameterKey': 'MultiAZDatabase',
+                'ParameterValue': 'false',
+            },
+
+        ]
+    )
+#    output = cloudformation_wait(name,region)
+#    if output == 'CREATE_FAILED':
+#        print "Creation of " + name + "Failed"
+#        sys.exit(0)
+#    elif output == 'CREATE_COMPLETE':
+#        print "Creation of " + name + "Succeed"
+#    else:
+#        print "Creation of " + name + "Encountered issue, please contact admin for fixing"
+#        sys.exit(0)
+
+def create_solo(hash, region):
+    print "Creating EC2 through Cloudformation with name = " + hash + "-chefsolo" 
+    stackname = hash + "-chefsolo" 
+    VPC = get_vpc_output(hash, region)
+    template_content = template_read('chef-solo')
+    filename = "/.bootdev/config"
+    from os.path import expanduser
+    home = expanduser("~")
+    ec2keyname = string2key_value(get_config_value("ec2keypair", file_get_contents(home + filename)))['keypair_name']
+    name = 'bitbucket'
+    file_name = get_value(get_value(name.lower(),service_key), string2key_value(get_config_value("keys", file_get_contents(home + filename))))
+    bitbuceket_pub = file_get_contents(file_name + ".pub")
+    bitbuceket_key = file_get_contents(file_name)
+    bitbuceket_knowhost = subprocess.check_output("/usr/bin/ssh-keyscan -H -t rsa bitbucket.org", shell=True)
+    cloudformation = boto3.client('cloudformation',region)
+    response = cloudformation.create_stack(
+        StackName=stackname,
+        TemplateBody=template_content,
+        Capabilities=[
+            'CAPABILITY_IAM',
+        ],
+        Parameters=[
+            {
+                'ParameterKey': 'AvailabilityZone',
+                'ParameterValue': VPC['PublicSubnetOne'].split(":")[1],
+            },
+            {
+                'ParameterKey': 'AttachEBSsize',
+                'ParameterValue': '30',
+            },
+            {
+                'ParameterKey': 'KeyName',
+                'ParameterValue': ec2keyname,
+            },
+            {
+                'ParameterKey': 'ProjectPrefix',
+                'ParameterValue': hash,
+            },
+            {
+                'ParameterKey': 'SSHPub',
+                'ParameterValue': bitbuceket_pub,
+            },
+            {
+                'ParameterKey': 'SSHKey',
+                'ParameterValue': bitbuceket_key,
+            },
+            {
+                'ParameterKey': 'SSHKnownHosts',
+                'ParameterValue': bitbuceket_knowhost,
+            },
+            {
+                'ParameterKey': 'VpcSecurityGroup',
+                'ParameterValue': VPC['VpcSecurityGroup'],
+            },
+            {
+                'ParameterKey': 'ServerTagName',
+                'ParameterValue': "bootdev",
+            },
+            {
+                'ParameterKey': 'ChefSubnet',
+                'ParameterValue': VPC['PublicSubnetOne'].split(":")[0],
+            },
+            {
+                'ParameterKey': 'ChefVpc',
+                'ParameterValue': VPC['VpcId'],
+            },
+            {
+                'ParameterKey': 'InstanceType',
+                'ParameterValue': 't2.micro',
+            },
+            {
+                'ParameterKey': 'InstancePort',
+                'ParameterValue': '80',
+            },
+            {
+                'ParameterKey': 'ChefLoadBalancerSubnet',
+                'ParameterValue': VPC['PublicSubnetTwo'].split(":")[0],
+            },
+            {
+                'ParameterKey': 'BootCloudBranch',
+                'ParameterValue': 'moCloud-php-pro',
+            },
+        ]
+    )
+
+def get_vpc_output(hash, region):
+    cloudformation = boto3.client('cloudformation',region)
+    name = hash + "-vpc"
+    response = cloudformation.describe_stacks(
+        StackName = name,
+    )
+    Dictionary = {}   
+    outputs = response['Stacks'][0]['Outputs']
+    for value in outputs:
+        Dictionary[value['OutputKey']] = value['OutputValue']
+    return Dictionary
+
+def cloudformation_wait(name,region):
+    cloudformation = boto3.client('cloudformation',region)
+    response = cloudformation.describe_stacks(
+        StackName = name,
+    )
+    status = response['Stacks'][0]['StackStatus']
+    print "Creation of " + name + " is in progress.",
+    while status == 'CREATE_IN_PROGRESS':
+        print '.',
+        time.sleep(5)
+        response = cloudformation.describe_stacks(
+            StackName = name,
+        )
+        status = response['Stacks'][0]['StackStatus']
+    return status
+
+def template_read(stack):
+    filename = os.path.dirname(os.path.realpath(__file__)) + '/templates/' + stack + '.template'
+    file = open(filename,'r')
+    return file.read()
 
 def check_verbose():
     try:
@@ -54,7 +313,7 @@ def get_value(key, list):
     if check_verbose():
         print "Getting values from stored list"
     for index, value in list.iteritems():
-        if index == key.lower():
+        if index == key.lower().strip():
             return value
     return 0
 
@@ -75,7 +334,7 @@ def get_config_value(key, content):
         return key_search.group(1)
 
 def string2key_value(contents):
-    items = contents.split('\n')
+    items = contents.replace(" ", "").split('\n')
     return dict(s.split('=') for s in items if s.strip() != '')
 
 def print_dict(cars):
@@ -343,6 +602,9 @@ class switcher:
         filename = "/.bootdev/config"
         from os.path import expanduser
         home = expanduser("~")
+        remove_line = ['ec2keypair', 'keypair_name']
+        for line in remove_line:
+            deleteLine(home + filename, line)
         f = open( home + filename, 'a')
         f.write("[ec2keypair]\n")
         f.write('keypair_name=' + keypair_name + "\n")
@@ -378,10 +640,50 @@ class switcher:
 #        else:
 #            print "No IP address configuration is required"
 #            return
+def deleteLine(filename, string):
+    fn = filename
+    f = open(fn)
+    output = []
+    for line in f:
+        if not string in line:
+            output.append(line)
+    f.close()
+    f = open(fn, 'w')
+    f.writelines(output)
+    f.close()
+def nothing():
+    print "",
 
+def set_default_subparser(self, name, args=None):
+    """default subparser selection. Call after setup, just before parse_args()
+    name: is the name of the subparser to call by default
+    args: if set is the argument list handed to parse_args()
+
+    , tested with 2.7, 3.2, 3.3, 3.4
+    it works with 2.6 assuming argparse is installed
+    """
+    subparser_found = False
+    for arg in sys.argv[1:]:
+        if arg in ['-h', '--help']:  # global help if no subparser
+            break
+    else:
+        for x in self._subparsers._actions:
+            if not isinstance(x, argparse._SubParsersAction):
+                continue
+            for sp_name in x._name_parser_map.keys():
+                if sp_name in sys.argv[1:]:
+                    subparser_found = True
+        if not subparser_found:
+            # insert default in first position, this implies no
+            # global options without a sub_parsers specified
+            if args is None:
+                sys.argv.insert(1, name)
+            else:
+                args.insert(0, name)
 
 def main():
     parser = argparse.ArgumentParser(description='BootDev command line for AWS infrastructure management',epilog="Copyright 2015 by BootDev\nAll rights reserved.")
+    #parser.set_default_subparser = set_default_subparser
     parser.add_argument("-i","--initialize", help="initialize BootDev Commandline tool",
                     action="store_true")
     parser.add_argument("-v","--verbose", help="increase output verbosity",
@@ -397,13 +699,22 @@ def main():
     #                #nargs='+'
     #                nargs=argparse.REMAINDER
     #                )
-    subparsers = parser.add_subparsers(help='sub-command help',dest='cmd')
-    parser_deploy = subparsers.add_parser('deploy',help="Deploying architecture to AWS")
-    parser_deploy.add_argument('--show', type=str)
-    parser_deploy.add_argument('--delete', type=str)
-    parser_deploy.add_argument('--pull', type=str)
-    parser_deploy.add_argument('--rollback', type=str)
-    parser_deploy.add_argument('--create', type=str)
+    flag = False
+    for item in sys.argv:
+        if (item.find("deploy") != -1) or (item.find("-h") != -1) or (not sys.argv[1:]):
+            flag = True
+
+    if flag:
+        subparsers = parser.add_subparsers(help='sub-command help',dest='cmd')
+        #subparsers.required = False
+        parser_deploy = subparsers.add_parser('deploy',help="Deploying architecture to AWS")
+        #parser_deploy.set_defaults(function=nothing())
+        #parser.set_default_subparser(parser_deploy,'deploy',parser)
+        parser_deploy.add_argument('--show', type=str)
+        parser_deploy.add_argument('--delete', type=str)
+        parser_deploy.add_argument('--pull', type=str)
+        parser_deploy.add_argument('--rollback', type=str)
+        parser_deploy.add_argument('--create', type=str)
 
     args = parser.parse_args()
     if args.initialize:
@@ -442,7 +753,7 @@ def main():
                 print "AWS Cli installation corrupted"
             else:
                 call([which('aws') + " " + ' '.join(args.aws)],shell=True)
-        if args.cmd:
+        if flag:
             if args.cmd == 'deploy':
                 run_deploy(args)
 
